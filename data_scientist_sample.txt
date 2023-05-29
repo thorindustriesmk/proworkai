@@ -1,0 +1,9 @@
+Alice Johnson
+Junior Data Scientist
+Experience:
+- Junior Data Analyst at LMN Corp (1 year)
+- Research Assistant at University of C (1 year)
+Education:
+- Bachelor of Science in Data Science, University of C (2016-2020)
+Skills:
+Python, R, SQL, Data Visualization, Tableau, Basic Machine Learning

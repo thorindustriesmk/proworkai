@@ -1,0 +1,9 @@
+Charlie Parker
+Front-end Developer
+Experience:
+- Front-end Developer at RST Corp (2 years)
+- Web Designer at UVW Inc (1 year)
+Education:
+- Bachelor of Web Development, University of H (2014-2018)
+Skills:
+HTML, CSS, JavaScript, React, Angular, Responsive Design, UI/UX Design, Adobe Creative Suite

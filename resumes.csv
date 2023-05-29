@@ -1,0 +1,67 @@
+id,resume,,,,,,,,,
+1,"""John Doe
+Software Engineer
+Experience:
+- Python Developer at XYZ Corp (2 years)
+- Java Developer at ABC Inc (1 year)
+Education:
+- Bachelor of Computer Science, University of A (2015-2019)
+Skills:
+Python, Java, Flask, Django, REST API, SQL""",,,,,,,,,
+2,"""Jane Smith
+Data Scientist
+Experience:
+- Data Scientist at DEF Corp (3 years)
+- Data Analyst at GHI Ltd (2 years)
+Education:
+- Master of Data Science, University of B (2014-2018)
+Skills:
+Python, R, SQL, Machine Learning, Statistics, Data Visualization, Tableau""",,,,,,,,,
+3,"""Robert Brown
+Front-end Developer
+Experience:
+- Front-end Developer at JKL Corp (3 years)
+- Web Designer at MNO Inc (1 year)
+Education:
+- Bachelor of Web Design, University of C (2013-2017)
+Skills:
+HTML, CSS, JavaScript, React, Angular, UI/UX Design, Adobe Creative Suite""",,,,,,,,,
+4,"""Emily Green
+DevOps Engineer
+Experience:
+- DevOps Engineer at PQR Corp (4 years)
+Education:
+- Bachelor of Computer Science, University of D (2012-2016)
+Skills:
+Linux, AWS, Docker, Kubernetes, Jenkins, CI/CD, Python, Bash""",,,,,,,,,
+5,",""Michael White
+Project Manager
+Experience:
+- Project Manager at STU Corp (5 years)
+- Business Analyst at VWX Inc (2 years)
+Education:
+- MBA, University of E (2010-2014)
+Skills:
+Agile, Scrum, Project Management, Business Analysis, Communication, Time Management""",,,,,,,,,
+6,"""Samantha Taylor
+Cybersecurity Analyst
+Experience:
+- Cybersecurity Analyst at YZA Corp (3 years)
+Education:
+- Bachelor of Information Security, University of F (2013-2017)
+Skills:
+Network Security, Threat Analysis, Incident Response, SIEM, Firewall Management, Linux""",,,,,,,,,
+7,"""William Black
+UX Designer
+Experience:
+- UX Designer at BCD Corp (3 years)
+- Graphic Designer at EFG Inc (2 years)
+Education:
+- Bachelor of Design, University of G (2011-2015)
+Skills:
+UI/UX Design, Wireframing, Prototyping, Adobe Creative Suite, Sketch, Figma, HTML, CSS""",,,,,,,,,
+,,,,,,,,,,
+,,,,,,,,,,
+,,,,,,,,,,
+,,,,,,,,,,"
+"

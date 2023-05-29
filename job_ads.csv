@@ -1,0 +1,49 @@
+id,job_title,description
+1,Python Developer - "Thor Industries","""We are looking for a Python Developer with experience in Django and Flask frameworks.
+Requirements:
+- 2+ years of experience with Python, Django, and Flask
+- Knowledge of REST APIs and SQL databases
+- Strong problem-solving skills
+- Bachelor's degree in Computer Science or a related field"""
+2,Data Scientist - "ABC Company","""We are seeking a Data Scientist to join our team.
+Requirements:
+- 3+ years of experience in Data Science or related field
+- Proficiency in Python, R, and SQL
+- Experience with Machine Learning algorithms and tools
+- Strong statistical knowledge and data visualization skills
+- Master's degree in Data Science, Computer Science, or related field"""
+3,Front-end Developer - "XYZ Company","""We are looking for a skilled Front-end Developer to join our team.
+Requirements:
+- 3+ years of experience in front-end development
+- Proficiency in HTML, CSS, and JavaScript
+- Experience with React or Angular
+- Strong UI/UX design skills
+- Bachelor's degree in Web Design, Computer Science, or a related field"""
+4,DevOps Engineer - "Test company","""We are seeking an experienced DevOps Engineer to join our team.
+Requirements:
+- 4+ years of experience in DevOps or related field
+- Proficiency in Linux, AWS, Docker, and Kubernetes
+- Experience with CI/CD pipelines and Jenkins
+- Strong scripting skills in Python or Bash
+- Bachelor's degree in Computer Science or a related field"""
+5,Project Manager - "Thor Industries","""We are looking for a Project Manager with a strong background in Agile methodologies.
+Requirements:
+- 5+ years of experience in project management
+- Experience with Agile and Scrum methodologies
+- Strong business analysis skills
+- Excellent communication and time management abilities
+- MBA or a related degree"""
+6,Cybersecurity Analyst - "XYZ Company","""We are seeking a Cybersecurity Analyst to join our team.
+Requirements:
+- 3+ years of experience in cybersecurity or a related field
+- Strong knowledge of network security and threat analysis
+- Experience with incident response and SIEM tools
+- Proficiency in firewall management and Linux
+- Bachelor's degree in Information Security or a related field"""
+7,UX Designer - "ABC Company","""We are looking for a talented UX Designer to join our team.
+Requirements:
+- 3+ years of experience in UI/UX design
+- Proficiency in wireframing, prototyping, and design tools such as Adobe Creative Suite, Sketch, and Figma
+- Basic knowledge of HTML and CSS
+- Strong problem-solving skills
+- Bachelor's degree in Design or a related field"""
