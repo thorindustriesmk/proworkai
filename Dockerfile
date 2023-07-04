@@ -1,4 +1,7 @@
-FROM continuumio/miniconda3:latest
+FROM python:3.9
+
+# Install freetds-dev package
+RUN apt-get update && apt-get install -y freetds-dev
 
 # Set the working directory
 WORKDIR /app
@@ -6,13 +9,11 @@ WORKDIR /app
 # Copy the requirements file
 COPY requirements.txt .
 
-# Install dependencies using conda and pip
-RUN conda create --name myenv python=3.9 && \
-    echo "source activate myenv" > ~/.bashrc && \
-    conda install --name myenv --yes --file requirements.txt && \
-    conda install --name myenv --yes -c conda-forge pymssql
+# Install dependencies using pip
+RUN pip install --no-cache-dir -r requirements.txt
+
 # Copy the application code
 COPY . .
 
 # Set the entrypoint command
-ENTRYPOINT ["python", "app.py"]
+CMD ["python", "app.py"]

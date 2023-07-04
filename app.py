@@ -17,7 +17,6 @@ from nltk.tokenize import word_tokenize
 nltk.download('punkt')
 nltk.download('stopwords')
 
-
 app = Flask(__name__)
 
 
@@ -68,6 +67,7 @@ def convert_data(data):
                 item[key] = item[key].strftime('%Y-%m-%d %H:%M:%S')
 
     return converted_data
+
 
 def preprocess_text(text):
     # Check if the input is a string
@@ -220,16 +220,13 @@ def recommend_jobs(user_id):
     for s in query_result:
         skills.append(s[6])
 
-
-    ###skills set vs job posts
-
     # Fetch data from JobPosts table
     job_posts_data = fetch_data(cursor1, 'JobPosts')
     converted_job_posts_data = convert_data(job_posts_data)
     column_names = [
         'Id', 'Title', 'Description', 'JobType', 'JobLocation', 'Salary', 'NoOfVocation',
         'RequiredSkills', 'EducationLevel', 'Experience', 'ScheduledAt', 'ExpiresAt',
-        'CreatedBy', 'Created', 'ModifiedBy', 'Modified', 'Deleted'
+        'CreatedBy', 'Created', 'ModifiedBy', 'Modified', 'Deleted', 'PostStatus', 'CompanyId'
     ]
 
     # Create a list of dictionaries
@@ -253,15 +250,43 @@ def recommend_jobs(user_id):
     # Sort jobs based on similarity in descending order
     jobs_sorted = [job for _, job in sorted(zip(similarities, jobs_list), key=lambda x: x[0], reverse=True)]
     # Get the top 3 jobs with highest similarity
-    top_jobs = jobs_sorted[:3]
+    top_jobs = jobs_sorted[:]
+
+    # Append company information to the JSON response
+    for job in top_jobs:
+        company_id = job.get('CompanyId')  # Use get() method to safely retrieve the value
+        if company_id:
+            company_data = fetch_company_data(cursor, company_id)
+            job['Company'] = company_data
 
     # Convert the result to JSON
     json_response = json.dumps(top_jobs, indent=4, cls=CustomJSONEncoder)
+
+    # Convert the result to JSON
 
     # Print the JSON response
     print(json_response)
     return str(json_response)
 
+
+def fetch_company_data(cursor, company_id):
+    cursor.execute("""
+        SELECT *
+        FROM vefacom_ProWorkSocial.Companies
+        WHERE Id = %s
+    """, (company_id,))
+    result = cursor.fetchone()
+
+    if result:
+        # Extract the column names from the cursor description
+        column_names = [desc[0] for desc in cursor.description]
+
+        # Create a dictionary with column names as keys and corresponding values from the result
+        company_data = dict(zip(column_names, result))
+
+        return company_data
+    else:
+        return None
 
 def fetch_job_post(cursor, job_id):
     cursor.execute("""
@@ -272,13 +297,20 @@ def fetch_job_post(cursor, job_id):
 
 
 def fetch_candidates(cursor):
+    candidates = fetch_profiles(cursor)
+    return candidates
+
+def fetch_profiles(cursor):
     cursor.execute("""
-        SELECT i.Id, i.Gender, i.DateOfBirth, i.Resume, i.DesiredSalary, i.JobPreferences, s.Description AS SkillDescription
-        FROM Individuals AS i
-        LEFT JOIN Skills AS s ON i.Id = s.IndividualId
+        SELECT Individuals.Id, Individuals.Gender, Individuals.DateOfBirth, Individuals.Resume, Individuals.DesiredSalary,
+            Individuals.JobPreferences, Skills.Description AS SkillDescription, Profiles.About, Profiles.WebsiteUrl,
+            Profiles.ContactEmail, Profiles.ContactPhone, Profiles.SocialProfile
+        FROM Individuals
+        LEFT JOIN Profiles ON Individuals.Id = Profiles.IndividualId
+        LEFT JOIN Skills ON Individuals.Id = Skills.IndividualId
     """)
-    result = cursor.fetchall()
-    return result
+    candidates = cursor.fetchall()
+    return candidates
 
 
 @app.route('/recommend_candidates/<job_id>', methods=['GET'])
@@ -306,13 +338,29 @@ def recommend_candidates(job_id):
     candidates = fetch_candidates(cursor)
     matched_candidates = []
     for candidate in candidates:
-        skills = candidate[6]  # Assuming the skills are at index 6 in the candidate tuple
-        # Assuming the required skills are at index 7 in the job_post tuple
-        matched_candidates.append(candidate)
+        # Extract the desired columns from the candidate tuple
+        individual_id = candidate[0]
+        skills = candidate[6]
+        profile_data = {
+            'About': candidate[7],
+            'WebsiteUrl': candidate[8],
+            'ContactEmail': candidate[9],
+            'ContactPhone': candidate[10],
+            'SocialProfile': candidate[11]
+        }
+        desired_salary = candidate[4]
 
-    # Sort candidates based on desired salary
-    matched_candidates = sorted(matched_candidates, key=lambda x: x[4],
-                                reverse=True)  # Assuming DesiredSalary is at index 4
+        # Create a candidate dictionary with the extracted data
+        candidate_data = {
+            'IndividualId': individual_id,
+            'Skills': skills,
+            'ProfileData': profile_data,
+            'DesiredSalary': desired_salary
+        }
+
+        matched_candidates.append(candidate_data)
+
+    #matched_candidates = sorted(matched_candidates, key=lambda x: x['DesiredSalary'], reverse=True)
 
     # Match candidates based on skills
     # matched_candidates = []
@@ -324,7 +372,7 @@ def recommend_candidates(job_id):
     # # Sort candidates based on desired salary
     #
     # # Get the top 3 candidates
-    top_candidates = matched_candidates[:3]
+    top_candidates = matched_candidates[:]
     #
     # # Convert candidates to JSON
     json_response = json.dumps(top_candidates, indent=4, default=str)
@@ -337,12 +385,20 @@ def recommend_candidates(job_id):
     #
     return json_response
 
+
 # Close database connections
+@app.route('/', methods=['GET'])
+def hello():
+    return "Hello world"
+
 
 if __name__ == '__main__':
     ##running the app
-    app.run(debug=True)
-
+    print("The app has started")
+    #app.run(debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)
+    #app.run(debug=True)
+    print("App run function is invoked!")
     # cursor.close()
     # conn.close()
     # cursor1.close()
