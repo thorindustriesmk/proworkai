@@ -22,10 +22,11 @@ jobs:
           docker push $REGISTRY/my-app
           docker logout $REGISTRY
 
-      - name: Deploy to Azure Web App for Containers
-        uses: azure/webapps-deploy@v2
+      - name: Azure CLI Login
+        uses: azure/login@v1
         with:
-          app-name: proworkai
-          images: $REGISTRY/my-app:latest
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Web App for Containers
+        run: |
+          az webapp config container set -n proworkai -g ProWork --docker-custom-image-name $REGISTRY/my-app:latest
