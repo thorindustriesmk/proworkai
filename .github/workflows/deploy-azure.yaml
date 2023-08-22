@@ -1,4 +1,4 @@
-name: Deploy to Azure
+name: Deploy to Azure Web App
 
 on:
   push:
@@ -13,20 +13,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Build and Push Docker Image
-        env:
-          REGISTRY: ${{ secrets.ACR_ENDPOINT }}  # Use the ACR_ENDPOINT secret
-        run: |
-          echo ${{ secrets.ACR_PASSWORD }} | docker login $REGISTRY -u ${{ secrets.ACR_USERNAME }} --password-stdin
-          docker build -t $REGISTRY/my-app .
-          docker push $REGISTRY/my-app
-          docker logout $REGISTRY
-
       - name: Azure CLI Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy to Azure Web App for Containers
+      - name: Build and Push Docker Image
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
-          az webapp config container set -n proworkai -g ProWork --docker-custom-image-name $REGISTRY/my-app:latest
+          docker build . -t ${{ secrets.REGISTRY_LOGIN_SERVER }}/sampleapp:${{ github.sha }}
+          docker push ${{ secrets.REGISTRY_LOGIN_SERVER }}/sampleapp:${{ github.sha }}
+
+      - name: Deploy to Azure Web App for Containers
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: prowork-ai  # Replace with your Web App name
+          images: ${{ secrets.REGISTRY_LOGIN_SERVER }}/sampleapp:${{ github.sha }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
