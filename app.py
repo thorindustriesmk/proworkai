@@ -178,7 +178,7 @@ def insert_individual_data(cursor):
 
 def fetch_individual_data(cursor, person_id):
     cursor.execute("""
-        SELECT Id, Gender, DateOfBirth, Resume, DesiredSalary, JobPreferences
+        SELECT Id, Gender, DateOfBirth, Resume, DesiredSalary, JobPreferences, CoverPicture
         FROM vefacom_ProWorkSocial.Individuals
         WHERE Id = %s
     """, (person_id,))
@@ -186,15 +186,37 @@ def fetch_individual_data(cursor, person_id):
     return result
 
 
+def fetch_employee_data(cursor, employee_id):
+    cursor.execute("""
+        SELECT Id, FullName, Position, Department, Experience, Language, StartDate, EndDate, Salary, AvailableTempWork, Note
+        FROM vefacom_ProWorkSocial.Employees
+        WHERE Id = %s
+    """, (employee_id,))
+    result = cursor.fetchone()
+    return result
+
+
 def fetch_individual_skills_data(cursor, person_id):
     cursor.execute("""
-        SELECT i.Id, i.Gender, i.DateOfBirth, i.Resume, i.DesiredSalary, i.JobPreferences, s.Description AS SkillDescription
+        SELECT i.Id, i.Gender, i.DateOfBirth, i.Resume, i.DesiredSalary, i.JobPreferences, p.CoverPicture
         FROM vefacom_ProWorkSocial.Individuals AS i
-        LEFT JOIN vefacom_ProWorkSocial.Skills AS s ON i.Id = s.IndividualId
+        LEFT JOIN vefacom_ProWorkSocial.Profiles AS p ON i.Id = p.IndividualId
         WHERE i.Id = %s
     """, (person_id,))
     result = cursor.fetchall()
     return result
+
+
+def fetch_profiles(cursor):
+    cursor.execute("""
+        SELECT Individuals.Id, Individuals.Gender, Individuals.DateOfBirth, Individuals.Resume, Individuals.DesiredSalary,
+            Individuals.JobPreferences, Profiles.About, Profiles.WebsiteUrl,
+            Profiles.ContactEmail, Profiles.ContactPhone, Profiles.SocialProfile
+        FROM Individuals
+        FULL JOIN Profiles ON Individuals.Id = Profiles.IndividualId
+    """)
+    candidates = cursor.fetchall()
+    return candidates
 
 
 @app.route('/recommend_jobs/<user_id>', methods=['GET'])
@@ -215,6 +237,11 @@ def recommend_jobs(user_id):
 
     individuals_data = fetch_data(cursor, 'Individuals')
 
+    employee_data = fetch_employee_data(cursor, user_id)
+    if employee_data:
+        experience = employee_data['Experience']
+        language = employee_data['Language']
+
     query_result = fetch_individual_skills_data(cursor, user_id)
     skills = []
     for s in query_result:
@@ -226,7 +253,7 @@ def recommend_jobs(user_id):
     column_names = [
         'Id', 'Title', 'Description', 'JobType', 'JobLocation', 'Salary', 'NoOfVocation',
         'RequiredSkills', 'EducationLevel', 'Experience', 'ScheduledAt', 'ExpiresAt',
-        'CreatedBy', 'Created', 'ModifiedBy', 'Modified', 'Deleted', 'PostStatus', 'CompanyId'
+        'CreatedBy', 'Created', 'ModifiedBy', 'Modified', 'Deleted', 'PostStatus'
     ]
 
     # Create a list of dictionaries
@@ -245,12 +272,13 @@ def recommend_jobs(user_id):
                 job_skills_vector[i] = 1
             individual_skills_vector[i] = 1
         similarity = cosine_similarity([job_skills_vector], [individual_skills_vector])[0][0]
+        # Add more conditions here to consider experience, language, etc.
         similarities.append(similarity)
 
     # Sort jobs based on similarity in descending order
     jobs_sorted = [job for _, job in sorted(zip(similarities, jobs_list), key=lambda x: x[0], reverse=True)]
     # Get the top 3 jobs with highest similarity
-    top_jobs = jobs_sorted[:]
+    top_jobs = jobs_sorted[:5]
 
     # Append company information to the JSON response
     for job in top_jobs:
@@ -262,7 +290,7 @@ def recommend_jobs(user_id):
     # Convert the result to JSON
     json_response = json.dumps(top_jobs, indent=4, cls=CustomJSONEncoder)
 
-    # Convert the result to JSON
+    # Convert the result to JSONd
 
     # Print the JSON response
     print(json_response)
@@ -288,6 +316,7 @@ def fetch_company_data(cursor, company_id):
     else:
         return None
 
+
 def fetch_job_post(cursor, job_id):
     cursor.execute("""
         SELECT * FROM JobPosts WHERE Id = %s
@@ -298,18 +327,6 @@ def fetch_job_post(cursor, job_id):
 
 def fetch_candidates(cursor):
     candidates = fetch_profiles(cursor)
-    return candidates
-
-def fetch_profiles(cursor):
-    cursor.execute("""
-        SELECT Individuals.Id, Individuals.Gender, Individuals.DateOfBirth, Individuals.Resume, Individuals.DesiredSalary,
-            Individuals.JobPreferences, Skills.Description AS SkillDescription, Profiles.About, Profiles.WebsiteUrl,
-            Profiles.ContactEmail, Profiles.ContactPhone, Profiles.SocialProfile
-        FROM Individuals
-        LEFT JOIN Profiles ON Individuals.Id = Profiles.IndividualId
-        LEFT JOIN Skills ON Individuals.Id = Skills.IndividualId
-    """)
-    candidates = cursor.fetchall()
     return candidates
 
 
@@ -336,17 +353,18 @@ def recommend_candidates(job_id):
 
     # Fetch all candidates
     candidates = fetch_candidates(cursor)
+    print(len(candidates[0]))
     matched_candidates = []
     for candidate in candidates:
         # Extract the desired columns from the candidate tuple
         individual_id = candidate[0]
-        skills = candidate[6]
+        skills = candidate[3]
         profile_data = {
-            'About': candidate[7],
-            'WebsiteUrl': candidate[8],
-            'ContactEmail': candidate[9],
-            'ContactPhone': candidate[10],
-            'SocialProfile': candidate[11]
+            'About': candidate[6],
+            'WebsiteUrl': candidate[7],
+            'ContactEmail': candidate[8],
+            'ContactPhone': candidate[9],
+            'SocialProfile': candidate[10]
         }
         desired_salary = candidate[4]
 
@@ -360,22 +378,23 @@ def recommend_candidates(job_id):
 
         matched_candidates.append(candidate_data)
 
-    #matched_candidates = sorted(matched_candidates, key=lambda x: x['DesiredSalary'], reverse=True)
+    # matched_candidates = sorted(matched_candidates, key=lambda x: x['DesiredSalary'], reverse=True)
 
     # Match candidates based on skills
-    # matched_candidates = []
-    # for candidate in candidates:
-    #     skills = candidate['SkillDescription']
-    #     if skills and job_post['RequiredSkills'] in skills:
-    #         matched_candidates.append(candidate)
-    #
-    # # Sort candidates based on desired salary
-    #
-    # # Get the top 3 candidates
-    top_candidates = matched_candidates[:]
+    final_candidates = []
+    for candidate in matched_candidates:
+        skills = candidate['Skills']
+        print(skills)
+        print(str(candidate))
+        if skills != None:
+            final_candidates.append(candidate)
+    # Sort candidates based on desired salary
+
+    # Get the top 3 candidates
+    top_candidates = final_candidates[:10]
     #
     # # Convert candidates to JSON
-    json_response = json.dumps(top_candidates, indent=4, default=str)
+    json_response = json.dumps(matched_candidates, indent=4, default=str)
     #
     # # Close the database connection
     cursor.close()
@@ -395,9 +414,9 @@ def hello():
 if __name__ == '__main__':
     ##running the app
     print("The app has started")
-    #app.run(debug=True)
-    app.run(host='0.0.0.0', port=5001, debug=True)
-    #app.run(debug=True)
+    # app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
+    # app.run(debug=True)
     print("App run function is invoked!")
     # cursor.close()
     # conn.close()
