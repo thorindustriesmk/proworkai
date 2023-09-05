@@ -1,0 +1,31 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Debug Azure CLI Version
+        run: az --version
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          environment: azurecloud
+          allow-no-subscriptions: false
+          audience: https://management.azure.com/
+          verbose: true
+
+      - name: Debug Azure CLI Logged In User
+        run: az account show
+
+      # Other steps for building and deploying...
