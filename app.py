@@ -1,23 +1,29 @@
 import pymssql
 import uuid
-from copy import deepcopy
 from flask import Flask, jsonify, request
 import json
 from decimal import Decimal
 from datetime import datetime
-import pandas as pd
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import string
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-
-nltk.download('punkt')
-nltk.download('stopwords')
+from copy import deepcopy
+from gensim.models import KeyedVectors
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 app = Flask(__name__)
+
+# Configuration
+app.config['DB_SERVER'] = '168.119.151.119\\MSSQLSERVER2016'
+
+# ProWork Social database configurations
+app.config['DB_USERNAME_SOCIAL'] = 'vefacom_ProWorkSocial'
+app.config['DB_PASSWORD_SOCIAL'] = 'K1~jvc204'
+app.config['DB_SOCIAL'] = 'ProWork-Social'
+
+# ProWork Jobs database configurations
+app.config['DB_USERNAME_JOBS'] = 'vefacom_prowork'
+app.config['DB_PASSWORD_JOBS'] = 'I95t$27le'
+app.config['DB_JOBS'] = 'ProWork-Jobs'
 
 
 class CustomJSONEncoder(json.JSONEncoder):
@@ -31,23 +37,185 @@ class CustomJSONEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def connect_to_database(server, database, username, password):
-    conn = pymssql.connect(server=server, database=database, user=username, password=password)
-    cursor = conn.cursor()
+def connect_to_database(database, username, password):
+    conn = pymssql.connect(server=app.config['DB_SERVER'], database=database,
+                           user=username, password=password)
+    cursor = conn.cursor(as_dict=True)  # Return results as dictionary
     return conn, cursor
+
+
+@app.route('/recommend_jobs/<user_id>', methods=['GET'])
+def recommend_jobs(user_id):
+    # Connect to ProWork Social database
+    conn_social, cursor_social = connect_to_database(
+        app.config['DB_SOCIAL'],
+        app.config['DB_USERNAME_SOCIAL'], app.config['DB_PASSWORD_SOCIAL']
+    )
+
+    # Connect to ProWork Jobs database
+    conn_jobs, cursor_jobs = connect_to_database(
+        app.config['DB_JOBS'],
+        app.config['DB_USERNAME_JOBS'], app.config['DB_PASSWORD_JOBS']
+    )
+
+    # Fetch individual's skills
+    individual_data = fetch_individual_data(cursor_social, user_id)
+    print("These are the individual data:" + str(individual_data))
+
+    if individual_data:
+        skills = fetch_individual_skills(cursor_social, user_id)
+        if len(skills):
+            print("The individual has not provided data about skills!")
+        only_skills = [s['description'] for s in skills]
+        work_experiences = fetch_individual_work_experiences(cursor_social, user_id)
+        educations = fetch_individual_educations(cursor_social, user_id)
+    else:
+        return "There are no data for this individual!"
+    # Fetch data from JobPosts table
+
+    print("Individuals" + str(individual_data))
+    print("skills" + str(skills))
+    print("work_experiences" + str(work_experiences))
+    print("educations" + str(educations))
+
+    job_posts_data = fetch_data(cursor_jobs, 'JobPosts')
+    converted_job_posts_data = convert_data(job_posts_data)
+    print(type(converted_job_posts_data))
+    # print("All jobs converted are" + str(converted_job_posts_data))
+    exclude_keys = ['Id', 'Created', 'ModifiedBy', 'Modified', 'Deleted', 'PostStatus', 'CompanyId', 'ScheduledAt',
+                    'ExpiresAt', 'CreatedBy']
+    # Parse the data to exclude the specified keys
+    all_job_data = [{k: v for k, v in item.items() if k not in exclude_keys} for item in converted_job_posts_data]
+    # print("Data new:" + str(all_job_data))
+
+    # Fetch individual's job preferences and work experiences
+    job_preferences = individual_data['JobPreferences'] if individual_data['JobPreferences'] else ""
+    job_titles = [exp['job_title'] for exp in work_experiences if exp['job_title']]
+    print("job_preferences " + str(job_preferences))
+    print("job_titles " + str(job_titles))
+    combined_strings = [job_preferences] + job_titles
+    print("combined_strings " + str(combined_strings))
+    combined_strings = [str(s).lower() for s in combined_strings if s and s.strip()]
+    if len(combined_strings) == 0:
+        return "The value of combined string is 0!"
+
+    filtered_job_posts = [job for job in converted_job_posts_data if job.get('Title') and job.get('RequiredSkills')]
+
+    filtered_job_titles = [job['Title'] for job in filtered_job_posts]
+    filtered_job_skills = [job['RequiredSkills'] for job in filtered_job_posts]
+
+    # Compute cosine similarity for job titles/preferences
+    cosine_similarities_titles = compute_cosine_similarity([combined_strings[0]], filtered_job_titles)
+
+    # Compute cosine similarity for skills
+    individual_skills_string = ' '.join(only_skills)
+    cosine_similarities_skills = compute_cosine_similarity([individual_skills_string], filtered_job_skills)
+
+    ##design the weighted sum
+    alpha = 0.5  # You can adjust this value based on how much weight you want to give to titles vs skills
+    weighted_similarities = alpha * cosine_similarities_titles + (1 - alpha) * cosine_similarities_skills
+
+    # Sort jobs based on similarity in descending order
+    # jobs_sorted = [job_title_to_data[job_title] for _, job_title in sorted(zip(cosine_similarities_titles, job_titles_for_vectorizer), key=lambda x: x[0], reverse=True)]
+    jobs_sorted = [job for _, job in sorted(zip(weighted_similarities, filtered_job_posts), key=lambda x: x[0], reverse=True)]
+
+    top_jobs = jobs_sorted[:5]
+
+    # Append company information to the JSON response
+    for job in top_jobs:
+        company_id = job.get('CompanyId')  # Use get() method to safely retrieve the value
+        print("Company id is:" + str(company_id))
+        if company_id:
+            company_data = fetch_company_data(cursor_social, company_id)
+            job['Company'] = company_data
+
+    # Convert the result to JSON
+    json_response = json.dumps(top_jobs, indent=4, cls=CustomJSONEncoder)
+
+    # Close the database connections
+    cursor_social.close()
+    conn_social.close()
+    cursor_jobs.close()
+    conn_jobs.close()
+
+    return json_response
+
+
+@app.route('/recommend_candidates/<job_id>', methods=['GET'])
+def recommend_candidates(job_id):
+    conn_social, cursor_social = connect_to_database(app.config['DB_SOCIAL'], app.config['DB_USERNAME_SOCIAL'],
+                                                     app.config['DB_PASSWORD_SOCIAL'])
+    conn_jobs, cursor_jobs = connect_to_database(app.config['DB_JOBS'], app.config['DB_USERNAME_JOBS'],
+                                                 app.config['DB_PASSWORD_JOBS'])
+
+    try:
+        # Fetch job post data, required skills, and other criteria
+        job_post = fetch_job_post(cursor_jobs, job_id)
+
+        # Fetch all candidates' data, skills, work experiences, and education
+        candidates = fetch_all_candidates(cursor_social)
+
+        # Compute similarity scores based on skills, work experiences, and education
+        scores = compute_similarity_scores_for_candidates(cursor_social, job_post, candidates)
+
+        # Sort candidates based on scores and return the top ones
+        recommended_candidates = sort_and_filter_candidates(candidates, scores)
+
+        return jsonify(recommended_candidates)
+
+    finally:
+        cursor_social.close()
+        conn_social.close()
+        cursor_jobs.close()
+        conn_jobs.close()
+
+
+def get_average_word2vec(tokens_list, vector, generate_missing=False, k=300):
+    """Get average word2vec for a list of tokens."""
+    if len(tokens_list) < 1:
+        return np.zeros(k)
+    if generate_missing:
+        vectorized = [vector[word] if word in vector else np.random.rand(k) for word in tokens_list]
+    else:
+        vectorized = [vector[word] if word in vector else np.zeros(k) for word in tokens_list]
+    length = len(vectorized)
+    summed = np.sum(vectorized, axis=0)
+    averaged = np.divide(summed, length)
+    return averaged
+
+
+def cosine_similarity_word2vec(vector1, vector2):
+    """Compute cosine similarity between two vectors."""
+    cos_sim = np.dot(vector1, vector2) / (np.linalg.norm(vector1) * np.linalg.norm(vector2))
+    return cos_sim
+
+
+def is_irrelevant_job(job):
+    """Check if a job post is irrelevant based on its title or description."""
+    irrelevant_patterns = ["asdasdasdasd", "test test"]
+    title = job.get("Title", "").lower()
+    description = job.get("Description", "").lower()
+    return any(pattern in title or pattern in description for pattern in irrelevant_patterns)
+
+
+def compute_cosine_similarity(strings_individual, strings_jobs):
+    tfidf_vectorizer = TfidfVectorizer()
+    tfidf_matrix_individual = tfidf_vectorizer.fit_transform(strings_individual)
+    tfidf_matrix_jobs = tfidf_vectorizer.transform(strings_jobs)
+    return cosine_similarity(tfidf_matrix_individual, tfidf_matrix_jobs).flatten()
+
+
+# Utility functions for fetching data and computing similarity scores
+def fetch_job_post(cursor, job_id):
+    # Fetch the specific job post based on job_id
+    cursor.execute("SELECT * FROM JobPosts WHERE Id = %s", (job_id,))
+    return cursor.fetchone()
 
 
 def fetch_data(cursor, table_name):
     cursor.execute(f"SELECT * FROM {table_name}")
     result = cursor.fetchall()
     return result
-
-
-def print_data(data, limit=10):
-    for i, item in enumerate(data):
-        if i == limit:
-            break
-        print(item)
 
 
 def convert_data(data):
@@ -63,172 +231,10 @@ def convert_data(data):
         # Convert datetime to string for date keys
         date_keys = ['ScheduledAt', 'ExpiresAt', 'Created', 'Modified', 'CreatedBy']
         for key in date_keys:
-            if key in item and item[key] is not None:
+            if key in item and item[key] is not None and isinstance(item[key], datetime):
                 item[key] = item[key].strftime('%Y-%m-%d %H:%M:%S')
 
     return converted_data
-
-
-def preprocess_text(text):
-    # Check if the input is a string
-    if not isinstance(text, str):
-        return ""
-
-    # Lowercase the text
-    text = text.lower()
-
-    # Remove punctuation
-    text = text.translate(str.maketrans("", "", string.punctuation))
-
-    # Tokenize the text
-    words = word_tokenize(text)
-
-    # Remove stopwords
-    stop_words = set(stopwords.words('english'))
-    words = [word for word in words if word not in stop_words]
-
-    # Join words back into a single string
-    preprocessed_text = " ".join(words)
-
-    return preprocessed_text
-
-
-def compute_similarity(job_ads, resume_text):
-    tfidf_vectorizer = TfidfVectorizer()
-
-    # Combine job ad and resume texts
-    combined_texts = job_ads['preprocessed_description'].tolist() + [resume_text]
-
-    # Compute the TF-IDF matrix
-    tfidf_matrix = tfidf_vectorizer.fit_transform(combined_texts)
-
-    # Compute cosine similarity
-    similarity_matrix = cosine_similarity(tfidf_matrix, tfidf_matrix)
-
-    return similarity_matrix
-
-
-
-
-def fetch_individual_data(cursor, person_id):
-    cursor.execute("""
-        SELECT Id, Gender, DateOfBirth, Resume, DesiredSalary, JobPreferences, CoverPicture
-        FROM vefacom_ProWorkSocial.Individuals
-        WHERE Id = %s
-    """, (person_id,))
-    result = cursor.fetchone()
-    return result
-
-
-def fetch_employee_data(cursor, employee_id):
-    cursor.execute("""
-        SELECT Id, FullName, Position, Department, Experience, Language, StartDate, EndDate, Salary, AvailableTempWork, Note
-        FROM vefacom_ProWorkSocial.Employees
-        WHERE Id = %s
-    """, (employee_id,))
-    result = cursor.fetchone()
-    return result
-
-
-def fetch_individual_skills_data(cursor, person_id):
-    cursor.execute("""
-        SELECT i.Id, i.Gender, i.DateOfBirth, i.Resume, i.DesiredSalary, i.JobPreferences, p.CoverPicture
-        FROM vefacom_ProWorkSocial.Individuals AS i
-        LEFT JOIN vefacom_ProWorkSocial.Profiles AS p ON i.Id = p.IndividualId
-        WHERE i.Id = %s
-    """, (person_id,))
-    result = cursor.fetchall()
-    return result
-
-
-def fetch_profiles(cursor):
-    cursor.execute("""
-        SELECT Individuals.Id, Individuals.Gender, Individuals.DateOfBirth, Individuals.Resume, Individuals.DesiredSalary,
-            Individuals.JobPreferences, Profiles.About, Profiles.WebsiteUrl,
-            Profiles.ContactEmail, Profiles.ContactPhone, Profiles.SocialProfile
-        FROM Individuals
-        FULL JOIN Profiles ON Individuals.Id = Profiles.IndividualId
-    """)
-    candidates = cursor.fetchall()
-    return candidates
-
-
-@app.route('/recommend_jobs/<user_id>', methods=['GET'])
-def recommend_jobs(user_id):
-    # Connect to ProWork Social database
-    server = '168.119.151.119\\MSSQLSERVER2016'
-    database = 'ProWork-Social'
-    username = 'vefacom_ProWorkSocial'
-    password = 'K1~jvc204'
-    conn, cursor = connect_to_database(server, database, username, password)
-
-    # Connect to ProWork Jobs database
-    server_jobs = '168.119.151.119\\MSSQLSERVER2016'
-    database_jobs = 'ProWork-Jobs'
-    username_jobs = 'vefacom_prowork'
-    password_jobs = 'I95t$27le'
-    conn1, cursor1 = connect_to_database(server_jobs, database_jobs, username_jobs, password_jobs)
-
-    individuals_data = fetch_data(cursor, 'Individuals')
-
-    employee_data = fetch_employee_data(cursor, user_id)
-    if employee_data:
-        experience = employee_data['Experience']
-        language = employee_data['Language']
-
-    query_result = fetch_individual_skills_data(cursor, user_id)
-    skills = []
-    for s in query_result:
-        skills.append(s[6])
-
-    # Fetch data from JobPosts table
-    job_posts_data = fetch_data(cursor1, 'JobPosts')
-    converted_job_posts_data = convert_data(job_posts_data)
-    column_names = [
-        'Id', 'Title', 'Description', 'JobType', 'JobLocation', 'Salary', 'NoOfVocation',
-        'RequiredSkills', 'EducationLevel', 'Experience', 'ScheduledAt', 'ExpiresAt',
-        'CreatedBy', 'Created', 'ModifiedBy', 'Modified', 'Deleted', 'PostStatus'
-    ]
-
-    # Create a list of dictionaries
-    jobs_list = [dict(zip(column_names, row)) for row in converted_job_posts_data]
-
-    # Compute cosine similarity for each job
-    similarities = []
-    for job in jobs_list:
-        required_skills = job['RequiredSkills']
-        required_skills_list = required_skills.split(', ')
-        # Compute similarity between job skills and individual skills
-        job_skills_vector = np.zeros(len(skills))
-        individual_skills_vector = np.zeros(len(skills))
-        for i, skill in enumerate(skills):
-            if skill in required_skills_list:
-                job_skills_vector[i] = 1
-            individual_skills_vector[i] = 1
-        similarity = cosine_similarity([job_skills_vector], [individual_skills_vector])[0][0]
-        # Add more conditions here to consider experience, language, etc.
-        similarities.append(similarity)
-
-    # Sort jobs based on similarity in descending order
-    jobs_sorted = [job for _, job in sorted(zip(similarities, jobs_list), key=lambda x: x[0], reverse=True)]
-    # Get the top 3 jobs with highest similarity
-    top_jobs = jobs_sorted[:5]
-
-    # Append company information to the JSON response
-    for job in top_jobs:
-        company_id = job.get('CompanyId')  # Use get() method to safely retrieve the value
-        if company_id:
-            company_data = fetch_company_data(cursor, company_id)
-            job['Company'] = company_data
-
-    # Convert the result to JSON
-    json_response = json.dumps(top_jobs, indent=4, cls=CustomJSONEncoder)
-
-    # Convert the result to JSONd
-
-    # Print the JSON response
-    print(json_response)
-    return str(json_response)
 
 
 def fetch_company_data(cursor, company_id):
@@ -242,117 +248,140 @@ def fetch_company_data(cursor, company_id):
     if result:
         # Extract the column names from the cursor description
         column_names = [desc[0] for desc in cursor.description]
+        print("Column names", column_names)
 
-        # Create a dictionary with column names as keys and corresponding values from the result
-        company_data = dict(zip(column_names, result))
-
-        return company_data
+        # Since result is already a dictionary, you can directly return it
+        return result
     else:
         return None
 
 
-def fetch_job_post(cursor, job_id):
+def fetch_individual_data(cursor, user_id):
+    # Fetch individual data based on user_id
+    cursor.execute("SELECT * FROM Individuals WHERE Id = %s", (user_id,))
+    return cursor.fetchone()
+
+
+def fetch_individual_skills(cursor, individual_id):
+    """Fetch skills of the individual based on individual_id along with proficiency level."""
+    print(f"Fetching skills for individual_id: {individual_id}")  # Debugging line
     cursor.execute("""
-        SELECT * FROM JobPosts WHERE Id = %s
-    """, (job_id,))
-    result = cursor.fetchone()
-    return result
+        SELECT s.Description, se.ProficiencyLevel 
+        FROM vefacom_ProWorkSocial.SkillEvaluations se
+        JOIN vefacom_ProWorkSocial.Skills s ON se.SkillId = s.Id
+        WHERE se.IndividualId = %s
+    """, (individual_id,))
+
+    skills = [{"description": row['Description'], "proficiency_level": row['ProficiencyLevel']} for row in
+              cursor.fetchall()]
+    sorted_skills = sorted(skills, key=lambda x: x['proficiency_level'], reverse=True)
+
+    print(f"Fetched skills: {sorted_skills}")  # Debugging line
+    return sorted_skills
 
 
-def fetch_candidates(cursor):
-    candidates = fetch_profiles(cursor)
-    return candidates
+def fetch_individual_work_experiences(cursor, individual_id):
+    """Fetch work experiences of the individual based on individual_id."""
+    cursor.execute("""
+        SELECT CompanyName, JobTitle, JobDescription, StartDate, EndDate 
+        FROM vefacom_ProWorkSocial.WorkExperiences
+        WHERE IndividualId = %s
+    """, (individual_id,))
+
+    work_experiences = cursor.fetchall()
+
+    parsed_work_experiences = []
+    for experience in work_experiences:
+        job_title = experience['JobTitle']
+        job_description = experience['JobDescription']
+
+        # Calculate the time difference between EndDate and StartDate
+        start_date = experience['StartDate']
+        end_date = experience['EndDate']
+        time_duration = (end_date - start_date).days  # This will give the difference in days
+
+        parsed_work_experiences.append({
+            "job_title": job_title,
+            "job_description": job_description,
+            "time_duration_days": time_duration
+        })
+
+    return parsed_work_experiences
 
 
-@app.route('/recommend_candidates/<job_id>', methods=['GET'])
-def recommend_candidates(job_id):
-    # Connect to the database
-    server = '168.119.151.119\\MSSQLSERVER2016'
-    database = 'ProWork-Social'
-    username = 'vefacom_ProWorkSocial'
-    password = 'K1~jvc204'
-    conn, cursor = connect_to_database(server, database, username, password)
+def fetch_individual_educations(cursor, individual_id):
+    """Fetch education details of the individual based on individual_id."""
+    cursor.execute("""
+        SELECT SchoolName, DegreeLevel, GPA 
+        FROM vefacom_ProWorkSocial.Educations
+        WHERE IndividualId = %s
+    """, (individual_id,))
 
-    # Connect to ProWork Jobs database
-    server_jobs = '168.119.151.119\\MSSQLSERVER2016'
-    database_jobs = 'ProWork-Jobs'
-    username_jobs = 'vefacom_prowork'
-    password_jobs = 'I95t$27le'
-    conn1, cursor1 = connect_to_database(server_jobs, database_jobs, username_jobs, password_jobs)
+    educations = cursor.fetchall()
 
-    # Fetch the job post
-    job_post = fetch_job_post(cursor1, job_id)
-    if not job_post:
-        return jsonify({'error': 'Job post not found'}), 404
+    parsed_educations = []
+    for education in educations:
+        school_name = education['SchoolName']
+        degree_level = education['DegreeLevel']
+        gpa = education['GPA']
 
-    # Fetch all candidates
-    candidates = fetch_candidates(cursor)
-    print(len(candidates[0]))
-    matched_candidates = []
+        parsed_educations.append({
+            "school_name": school_name,
+            "degree_level": degree_level,
+            "gpa": gpa
+        })
+
+    return parsed_educations
+
+
+def fetch_all_job_posts(cursor):
+    # Fetch all job posts
+    cursor.execute("SELECT * FROM JobPosts")
+    return cursor.fetchall()
+
+
+def compute_similarity_scores(individual_skills, job_posts):
+    # Compute similarity scores based on skills and other criteria
+    # Placeholder logic
+    scores = []
+    for job in job_posts:
+        required_skills = job['RequiredSkills'].split(', ')
+        matching_skills = set(individual_skills).intersection(set(required_skills))
+        scores.append(len(matching_skills))
+    return scores
+
+
+def sort_and_filter_jobs(job_posts, scores):
+    # Sort job posts based on scores and return the top ones
+    sorted_jobs = [job for _, job in sorted(zip(scores, job_posts), key=lambda pair: pair[0], reverse=True)]
+    return sorted_jobs[:5]
+
+
+def fetch_all_candidates(cursor):
+    # Fetch all candidates' data, skills, work experiences, and education
+    cursor.execute("SELECT * FROM Individuals")
+    return cursor.fetchall()
+
+
+def compute_similarity_scores_for_candidates(cursor, job_post, candidates):
+    # Compute similarity scores for candidates based on job post criteria
+    # Placeholder logic
+    required_skills = job_post['RequiredSkills'].split(', ')
+    scores = []
     for candidate in candidates:
-        # Extract the desired columns from the candidate tuple
-        individual_id = candidate[0]
-        skills = candidate[3]
-        profile_data = {
-            'About': candidate[6],
-            'WebsiteUrl': candidate[7],
-            'ContactEmail': candidate[8],
-            'ContactPhone': candidate[9],
-            'SocialProfile': candidate[10]
-        }
-        desired_salary = candidate[4]
-
-        # Create a candidate dictionary with the extracted data
-        candidate_data = {
-            'IndividualId': individual_id,
-            'Skills': skills,
-            'ProfileData': profile_data,
-            'DesiredSalary': desired_salary
-        }
-
-        matched_candidates.append(candidate_data)
-
-    # matched_candidates = sorted(matched_candidates, key=lambda x: x['DesiredSalary'], reverse=True)
-
-    # Match candidates based on skills
-    final_candidates = []
-    for candidate in matched_candidates:
-        skills = candidate['Skills']
-        print(skills)
-        print(str(candidate))
-        if skills != None:
-            final_candidates.append(candidate)
-    # Sort candidates based on desired salary
-
-    # Get the top 3 candidates
-    top_candidates = final_candidates[:10]
-    #
-    # # Convert candidates to JSON
-    json_response = json.dumps(matched_candidates, indent=4, default=str)
-    #
-    # # Close the database connection
-    cursor.close()
-    conn.close()
-    cursor1.close()
-    conn1.close()
-    #
-    return json_response
+        candidate_skills = fetch_individual_skills(cursor, candidate['Id'])
+        matching_skills = set(candidate_skills).intersection(set(required_skills))
+        scores.append(len(matching_skills))
+    return scores
 
 
-# Close database connections
-@app.route('/', methods=['GET'])
-def hello():
-    return "Hello world"
+def sort_and_filter_candidates(candidates, scores):
+    # Sort candidates based on scores and return the top ones
+    sorted_candidates = [candidate for _, candidate in
+                         sorted(zip(scores, candidates), key=lambda pair: pair[0], reverse=True)]
+    return sorted_candidates[:10]
 
 
 if __name__ == '__main__':
-    ##running the app
-    print("The app has started")
-    # app.run(debug=True)
     app.run(host='0.0.0.0', port=5000, debug=True)
-    # app.run(debug=True)
-    print("App run function is invoked!")
-    # cursor.close()
-    # conn.close()
-    # cursor1.close()
-    # conn1.close()
+    print("The app has started running!!!!")
