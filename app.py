@@ -149,19 +149,49 @@ def recommend_candidates(job_id):
                                                  app.config['DB_PASSWORD_JOBS'])
 
     try:
-        # Fetch job post data, required skills, and other criteria
+        # 1. Fetch the specific job post based on job_id
         job_post = fetch_job_post(cursor_jobs, job_id)
 
-        # Fetch all candidates' data, skills, work experiences, and education
+        # 2. Extract the required skills from the job post
+        required_skills_string = job_post['RequiredSkills']
+        print("The required skills for the job are:" + str(required_skills_string))
+        # 3. Fetch all candidates' data and their skills
         candidates = fetch_all_candidates(cursor_social)
+        candidates_skills = []
+        valid_candidates = []  # List to store candidates with valid skills
 
-        # Compute similarity scores based on skills, work experiences, and education
-        scores = compute_similarity_scores_for_candidates(cursor_social, job_post, candidates)
+        for candidate in candidates:
+            candidate_id = candidate['Id']
+            print("Candidate it" + str(candidate_id))
 
-        # Sort candidates based on scores and return the top ones
-        recommended_candidates = sort_and_filter_candidates(candidates, scores)
+            candidate_skills = [skill['description'] for skill in fetch_individual_skills(cursor_social, candidate_id)]
+            if candidate_skills:  # This will be False for an empty list
+                candidates_skills.append(' '.join(candidate_skills))
+                valid_candidates.append(candidate)
+
+        # 4. Compute TF-IDF vectors for the required skills and the skills of each candidate
+        tfidf_vectorizer = TfidfVectorizer()
+        tfidf_matrix_required_skills = tfidf_vectorizer.fit_transform([required_skills_string])
+        tfidf_matrix_candidates = tfidf_vectorizer.transform(candidates_skills)
+
+        # 5. Compute cosine similarity scores for each candidate based on the TF-IDF vectors
+        cosine_similarities = cosine_similarity(tfidf_matrix_required_skills, tfidf_matrix_candidates).flatten()
+
+        # 6. Sort candidates based on their similarity scores and return the top ones
+        recommended_candidates = [candidate for _, candidate in
+                                  sorted(zip(cosine_similarities, valid_candidates), key=lambda pair: pair[0],
+                                         reverse=True)]
+
+        # Enhance the data for each recommended candidate
+        for candidate in recommended_candidates:
+            individual_id = candidate['Id']
+            candidate['Skills'] = fetch_individual_skills(cursor_social, individual_id)
+            candidate['WorkExperience'] = fetch_individual_work_experiences(cursor_social, individual_id)
+            candidate['Education'] = fetch_individual_educations(cursor_social, individual_id)
 
         return jsonify(recommended_candidates)
+
+        return jsonify(recommended_candidates[:10])  # Return the top 10 candidates
 
     finally:
         cursor_social.close()
@@ -183,11 +213,6 @@ def get_average_word2vec(tokens_list, vector, generate_missing=False, k=300):
     averaged = np.divide(summed, length)
     return averaged
 
-
-def cosine_similarity_word2vec(vector1, vector2):
-    """Compute cosine similarity between two vectors."""
-    cos_sim = np.dot(vector1, vector2) / (np.linalg.norm(vector1) * np.linalg.norm(vector2))
-    return cos_sim
 
 
 def is_irrelevant_job(job):
@@ -264,7 +289,7 @@ def fetch_individual_data(cursor, user_id):
 
 def fetch_individual_skills(cursor, individual_id):
     """Fetch skills of the individual based on individual_id along with proficiency level."""
-    print(f"Fetching skills for individual_id: {individual_id}")  # Debugging line
+    #print(f"Fetching skills for individual_id: {individual_id}")  # Debugging line
     cursor.execute("""
         SELECT s.Description, se.ProficiencyLevel 
         FROM vefacom_ProWorkSocial.SkillEvaluations se
@@ -277,6 +302,8 @@ def fetch_individual_skills(cursor, individual_id):
     sorted_skills = sorted(skills, key=lambda x: x['proficiency_level'], reverse=True)
 
     print(f"Fetched skills: {sorted_skills}")  # Debugging line
+    if len(sorted_skills) == 0:
+        return []
     return sorted_skills
 
 
@@ -370,8 +397,9 @@ def compute_similarity_scores_for_candidates(cursor, job_post, candidates):
     scores = []
     for candidate in candidates:
         candidate_skills = fetch_individual_skills(cursor, candidate['Id'])
-        matching_skills = set(candidate_skills).intersection(set(required_skills))
-        scores.append(len(matching_skills))
+        if candidate_skills != "No skills":
+            matching_skills = set(candidate_skills).intersection(set(required_skills))
+            scores.append(len(matching_skills))
     return scores
 
 
