@@ -189,9 +189,10 @@ def recommend_candidates(job_id):
             candidate['WorkExperience'] = fetch_individual_work_experiences(cursor_social, individual_id)
             candidate['Education'] = fetch_individual_educations(cursor_social, individual_id)
 
-        return jsonify(recommended_candidates)
+            # Fetching and adding the profile details
+            candidate['Profile'] = fetch_profile_by_individual_id(cursor_social, individual_id)
 
-        return jsonify(recommended_candidates[:10])  # Return the top 10 candidates
+        return jsonify(recommended_candidates)
 
     finally:
         cursor_social.close()
@@ -241,6 +242,15 @@ def fetch_data(cursor, table_name):
     cursor.execute(f"SELECT * FROM {table_name}")
     result = cursor.fetchall()
     return result
+
+def fetch_profile_by_individual_id(cursor, individual_id):
+    query = """
+    SELECT * FROM vefacom_ProWorkSocial.Profiles
+    WHERE IndividualId = %s
+    """
+    cursor.execute(query, (individual_id,))
+    profile = cursor.fetchone()
+    return profile
 
 
 def convert_data(data):
