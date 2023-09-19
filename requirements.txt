@@ -4,3 +4,4 @@ pandas
 nltk
 flask
 pymssql
+gensim==4.1.2
