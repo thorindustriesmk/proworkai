@@ -5,3 +5,4 @@ nltk
 flask
 pymssql
 gensim==4.1.2
+scipy==1.7.3
